@@ -1,15 +1,13 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
-const bodyParser = require("body-parser");
+const { generateToken } = require("./token");
 const sqlite3 = require("sqlite3").verbose();
 
 const router = express.Router();
-const secretKey = "noimot123";
 
 const db = new sqlite3.Database("users.db");
 
-router.use(bodyParser.json());
 db.run(`
   CREATE TABLE IF NOT EXISTS users (
     Id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,6 +15,26 @@ db.run(`
     Password TEXT NOT NULL
   )
 `);
+
+router.post("/signup", async (req, res) => {
+  try {
+    const { Username, Password } = req.body;
+    const hashedPassword = await bcrypt.hash(Password, 10);
+    db.run(
+      "INSERT INTO users (Username, Password) VALUES (?, ?)",
+      [Username, hashedPassword],
+      (err) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ message: "User signup successfully" });
+      }
+    );
+  } catch (error) {
+    console.error("An error occur while signing up:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 router.post("/login", async (req, res) => {
   const { Username, Password } = req.body;
@@ -28,7 +46,7 @@ router.post("/login", async (req, res) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-
+      console.log(user, "user");
       if (!user) {
         return res
           .status(401)
@@ -42,34 +60,10 @@ router.post("/login", async (req, res) => {
           .status(401)
           .json({ message: "Invalid username or password" });
       }
-
-      const token = jwt.sign(
-        { userId: user.Id, username: user.Username },
-        secretKey,
-        {
-          expiresIn: "1h",
-        }
-      );
-
+      const token = generateToken(user);
       res.json({ token });
     }
   );
 });
 
-function authenticateToken(req, res, next) {
-  const token = req.headers.authorization;
-
-  if (!token) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  jwt.verify(token, secretKey, (err, user) => {
-    if (err) {
-      return res.status(403).json({ message: "Forbidden" });
-    }
-    req.user = user;
-    next();
-  });
-}
-
-module.exports = { router, authenticateToken };
+module.exports = { router };
